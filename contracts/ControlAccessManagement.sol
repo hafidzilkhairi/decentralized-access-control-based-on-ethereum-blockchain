@@ -23,8 +23,8 @@ contract ControlAccessManagement {
     }
 
     constructor() public {
-        addPolicy("", "", "", false);
-        addActivityLog("", "", "");
+        createPolicy("", "", "", false);
+        createActivityLog("", "", "");
     }
 
     mapping(uint256 => Policy) public policies;
@@ -51,7 +51,7 @@ contract ControlAccessManagement {
         string memory _activity,
         string memory _requester,
         bool permission
-    ) public returns (uint256) {
+    ) public returns (int32) {
         policyCount++;
         policies[policyCount] = Policy(
             policyCount,
@@ -69,7 +69,7 @@ contract ControlAccessManagement {
         string memory _activity,
         string memory requester,
         bool permission
-    ) public returns (int256) {
+    ) public returns (int32) {
         int256 idx = getIndex(deviceId, _activity, requester);
         if (idx == -1) {
             return 1;
@@ -132,6 +132,22 @@ contract ControlAccessManagement {
             permission
         );
         return permission;
+    }
+
+    function grantActivityLog(uint256 idx) private returns (int32) {
+        if (idx > activityLogCount) {
+            return 1;
+        }
+        ActivityLog storage obj = activityLogs[idx];
+        int256 pIdx = getIndex(obj.deviceId, obj.activity, obj.requester);
+        if (pIdx < 0) {
+            return
+                createPolicy(obj.deviceId, obj.activity, obj.requester, true);
+        }
+        if (obj.permission == true) {
+            return 0;
+        }
+        return changePolicy(obj.deviceId, obj.activity, obj.requester, true);
     }
 
     function compareStrings(string memory _a, string memory _b)
