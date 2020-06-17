@@ -1,0 +1,26 @@
+{
+  "name": "decentrilized-and-secure-control-access-management",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "dev": "node app.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hafidzilkhairi/skripsi.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hafidzilkhairi/skripsi/issues"
+  },
+  "homepage": "https://github.com/hafidzilkhairi/skripsi#readme",
+  "dependencies": {
+    "express": "^4.17.1",
+    "web3": "^1.2.9"
+  }
+}
