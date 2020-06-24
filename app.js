@@ -1,59 +1,171 @@
 const express = require('express')
+const bodyParser = require('body-parser')
 const app = express()
 const Web3 = require('web3')
 const solidity = require('./build/contracts/ControlAccessManagement.json')
 const port = 3000
 const rpcUrl = "http://127.0.0.1:7545"
 const web3 = new Web3(rpcUrl)
-const contractAddress = "0x99Bdd53be13181C8317C2ae0344436bE2986b1D8"
+const contractAddress = "0xB94dbe9a1FD252ee46A525E96B9e8cB47C3B7543"
+const privKey = '5087a9fbb2e02e58fff959f153812072fc612288b4e76c1ca70e2c90afd40271'
 const contract = new web3.eth.Contract(solidity.abi, contractAddress)
-// contract.methods.createPolicy("", "", "", false).call((err, result) => {
-//     console.log(err)
-//     console.log(result)
-// })
-// contract.methods.policies(0).call((err, result) => {
-//     console.log(err)
-//     console.log(result)
-// })
+const account = web3.eth.accounts.privateKeyToAccount('0x' + privKey)
+web3.eth.accounts.wallet.add(account)
+web3.eth.Contract.defaultAccount = account.address
 
-const response = {
-    message: "",
-    data: [],
-    total: 0
+
+app.use(bodyParser.json())
+
+const txOptions = {
+    from: account.address,
+    gas: "800000",
+    gasPrice: 2000000000
+}
+
+const responseDefault = () => {
+    return rt = {
+        message: "Success",
+        data: [],
+        total: 0
+    }
 }
 
 app.get('/api/v1/policies', async (req, res) => {
+    const response = responseDefault();
     const query = req.query
     if (!(query.pageNumber && query.itemAmount)) {
+        response.message = 'Unsatisfied query'
         res.status(400)
-        res.send()
+        res.send(response)
         return
     }
-    var totalData = 0;
-    await contract.methods.policyCount().call((err, result) => {
-        totalData = parseInt(result) + 1;
-    })
-    if (!(totalData > (query.pageNumber - 1) * query.itemAmount)) {
+
+
+    var totalData = 0, isError = false;
+    const pgNumber = parseInt(query.pageNumber),
+        itemAmount = parseInt(query.itemAmount),
+        bottomLine = (pgNumber - 1) * itemAmount,
+        topLine = pgNumber * itemAmount,
+        data = []
+
+
+    try {
+        await contract.methods.policyCount().call((err, result) => {
+            if (err) {
+                isError = true
+                return
+            }
+            totalData = parseInt(result) + 1;
+        })
+    } catch (error) {
+        isError = true
+    }
+    if (isError) {
+        res.status(500)
+        response.message = "Something wrong"
+        res.send(response)
+        return
+    }
+    if (!(totalData > bottomLine)) {
         res.status(400)
-        response.message = "Data amount doesn't satisfy current query";
+        response.message = "Query of request doesn't satisfy current data";
         res.send(response);
         return
     }
-    var data = [];
-    var startFor = (query.pageNumber - 1) * query.itemAmount;
-    var endFor = query.pageNumber * query.itemAmount < totalData ? query.pageNumber * query.itemAmount : totalData;
-    var isError = false;
+
+
+    const startFor = bottomLine,
+        endFor = topLine > totalData ? totalData : topLine
+
+
     for (let i = startFor; i < endFor; i++) {
-        await contract.methods.policies(i).call((err, result) => {
-            if (err) {
-                isError = true;
-            }
-            data.push(result)
-        })
+        try {
+            await contract.methods.policies(i).call((err, result) => {
+                if (err) {
+                    isError = true;
+                }
+                data.push(result)
+            })
+        } catch (error) {
+            isError = true
+        }
         if (isError) {
             response.message = "Something wrong"
             res.status(500)
-            res.send()
+            res.send(response)
+            return
+        }
+    }
+
+    response.data = data
+    response.total = totalData
+    res.send(response)
+    return
+})
+
+app.get('/api/v1/activity-log', async (req, res) => {
+    const response = responseDefault();
+    const query = req.query
+    if (!(query.pageNumber && query.itemAmount)) {
+        response.message = "Unsatisfied query"
+        res.status(400)
+        res.send(response)
+        return
+    }
+
+
+    var totalData = 0, isError = false;
+    const pgNumber = parseInt(query.pageNumber),
+        itemAmount = parseInt(query.itemAmount),
+        bottomLine = (pgNumber - 1) * itemAmount,
+        topLine = pgNumber * itemAmount,
+        data = []
+
+
+    try {
+        await contract.methods.activityLogCount().call((err, result) => {
+            if (err) {
+                isError = true
+                return
+            }
+            totalData = parseInt(result) + 1;
+        })
+    } catch (error) {
+        isError = true
+    }
+    if (isError) {
+        res.status(500)
+        response.message = "Something wrong"
+        res.send(response)
+        return
+    }
+    if (!(totalData > bottomLine)) {
+        res.status(400)
+        response.message = "Query of request doesn't satisfy current data";
+        res.send(response);
+        return
+    }
+
+
+    const startFor = bottomLine,
+        endFor = topLine > totalData ? totalData : topLine
+
+
+    for (let i = startFor; i < endFor; i++) {
+        try {
+            await contract.methods.activityLogs(i).call((err, result) => {
+                if (err) {
+                    isError = true;
+                }
+                data.push(result)
+            })
+        } catch (error) {
+            isError = true
+        }
+        if (isError) {
+            response.message = "Something wrong"
+            res.status(500)
+            res.send(response)
             return
         }
     }
@@ -63,68 +175,277 @@ app.get('/api/v1/policies', async (req, res) => {
     return
 })
 
-app.get('/api/v1/activity-logs', async (req, res) => {
-    const query = req.query
-    if (!(query.pageNumber && query.itemAmount)) {
+app.get('/api/v1/permission', async (req, res) => {
+    const query = req.query,
+        response = responseDefault()
+    var isError = false,
+        isPermit = false,
+        permission = false,
+        totalData = 0
+
+    if (!(query.deviceId, query.activity, query.requester)) {
+        response.message = "Unsatisfied query"
         res.status(400)
-        res.send()
+        res.send(response)
         return
     }
-    var totalData = 0;
-    await contract.methods.activityLogCount().call((err, result) => {
-        totalData = parseInt(result) + 1;
-    })
-    if (!(totalData > (query.pageNumber - 1) * query.itemAmount)) {
-        res.status(400)
-        response.message = "Data amount doesn't satisfy current query";
-        res.send(response);
-        return
-    }
-    var data = [];
-    var startFor = (query.pageNumber - 1) * query.itemAmount;
-    var endFor = query.pageNumber * query.itemAmount < totalData ? query.pageNumber * query.itemAmount : totalData;
-    var isError = false;
-    for (let i = startFor; i < endFor; i++) {
-        await contract.methods.activityLogs(i).call((err, result) => {
-            if (err) {
+
+    try {
+        await contract.methods.policyCount().call((e, r) => {
+            if (e) {
                 isError = true;
             }
-            data.push(result)
+            totalData = parseInt(r) + 1
         })
-        if (isError) {
-            response.message = "Something wrong"
-            res.status(500)
-            res.send()
-            return
-        }
+    } catch (error) {
+        isError = true;
     }
-    response.data = data
-    response.total = totalData
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+    try {
+        for (let i = 0; i < totalData; i++) {
+            await contract.methods.policies(i).call((e, r) => {
+                if (e) {
+                    isError = true
+                }
+                if (query.deviceId == r.deviceId && query.activity == r.activity && query.requester == r.requester) {
+                    idxPolicy = i
+                }
+            })
+            if (isError) {
+                break
+            }
+        }
+    } catch (error) {
+        console.log(error)
+        isError = true;
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+    try {
+        await contract.methods.createActivityLog(query.deviceId, query.activity, query.requester, permission).send(txOptions, (e, r) => {
+            if (e) {
+                isError = true
+                return
+            }
+            isPermit = r
+            return
+        })
+    } catch (error) {
+        console.log(error)
+        isError = true
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+    response.message = permission ? "Allowed" : "Forbidden"
     res.send(response)
     return
 })
 
-app.get('/api/v1/permission', (req, res) => {
-    const query = req.query
-    if (query.deviceId, query.activity, query.requester) {
-        contract.methods.createActivityLog
-        contract.methods.getIndex(query.deviceId, query.activity, query.requester).call((err, result) => {
-            if (err) {
-                res.status(500)
-                res.send(err)
-                return
+app.patch('/api/v1/permission/:id', async (req, res) => {
+    const idx = web3.eth.abi.encodeParameter('uint256', parseInt(req.params.id)),
+        permission = req.body.permission,
+        response = responseDefault()
+    var totalData = 0,
+        isError = false,
+        isSucces = false
+
+    try {
+        await contract.methods.policyCount().call((e, r) => {
+            if (e) {
+                isError = true;
             }
-            if (result == -1) {
-                res.status(403)
-                res.send()
-                return
-            }
-            res.send(result)
-            return
+            totalData = parseInt(r) + 1
         })
+    } catch (error) {
+        isError = true
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
         return
     }
-    res.send('Hello World!')
+
+    if (!(permission && typeof (permission) == 'boolean' && idx > -1 && idx < totalData)) {
+        response.message = "Unsatisfied query"
+        res.status(400)
+        res.send(response)
+        return
+    }
+
+    try {
+        await contract.methods.changePolicy(idx, permission).send(txOptions, (e, r) => {
+            if (e) {
+                isError = true;
+                return
+            }
+            isSucces = parseInt(r) == 0
+        })
+    } catch (error) {
+        isError = true;
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+    response.message = "Success"
+    res.send(response)
+    return
+})
+
+// Grant a permission to activity log
+app.put('/api/v1/activity-log/:id', async (req, res) => {
+    const idx = web3.eth.abi.encodeParameter('uint256', parseInt(req.params.id)),
+        query = req.body,
+        response = responseDefault(),
+        permission = query.permission
+    var isSucces = false,
+        isError = false,
+        idxPolicy = -1,
+        totalData = 0,
+        activityLog = {}
+
+    try {
+        await contract.methods.activityLogCount().call((e, r) => {
+            if (e) {
+                isError = true;
+            }
+            totalData = parseInt(r) + 1
+        })
+    } catch (error) {
+        isError = true
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+    if (!(permission && typeof (permission) == 'boolean' && idx > -1 && idx < totalData)) {
+        response.message = "Unsatisfied query"
+        res.status(400)
+        res.send(response)
+        return
+    }
+
+    try {
+        await contract.methods.activityLogs(idx).call((e, r) => {
+            if (e) {
+                isError = true;
+            }
+            activityLog = r
+        })
+    } catch (error) {
+        isError = true
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+    try {
+        await contract.methods.policyCount().call((e, r) => {
+            if (e) {
+                isError = true;
+            }
+            totalData = parseInt(r) + 1
+        })
+    } catch (error) {
+        isError = true;
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+    try {
+        for (let i = 0; i < totalData; i++) {
+            await contract.methods.policies(i).call((e, r) => {
+                if (e) {
+                    isError = true
+                }
+                if (activityLog.deviceId == r.deviceId && activityLog.activity == r.activity && activityLog.requester == r.requester) {
+                    idxPolicy = i
+                }
+            })
+            if (isError) {
+                break
+            }
+        }
+    } catch (error) {
+        isError = true;
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+
+    if (idxPolicy < 0) {
+        try {
+            await contract.methods
+                .createPolicy(activityLog.deviceId, activityLog.activity, activityLog.requester, permission)
+                .send(txOptions, (e, r) => {
+                    if (e) {
+                        isError = true
+                    }
+                })
+        } catch (error) {
+            isError = true;
+        }
+        if (isError) {
+            response.message = "Something wrong"
+            res.status(500)
+            res.send(response)
+            return
+        }
+    } else {
+        idxPolicy = web3.eth.abi.encodeParameter('uint256', parseInt(idxPolicy))
+        try {
+            await contract.methods.changePolicy(idxPolicy, permission).send(txOptions, (e, r) => {
+                if (e) {
+                    isError = true
+                }
+            })
+        } catch (error) {
+            isError = true;
+        }
+        if (isError) {
+            response.message = "Something wrong"
+            res.status(500)
+            res.send(response)
+            return
+        }
+    }
+
+    response.message = "Success"
+    res.send(response)
     return
 })
 

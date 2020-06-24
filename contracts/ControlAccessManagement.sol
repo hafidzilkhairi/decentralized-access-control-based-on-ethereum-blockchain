@@ -22,11 +22,6 @@ contract ControlAccessManagement {
         bool permission;
     }
 
-    constructor() public {
-        createPolicy("", "", "", false);
-        createActivityLog("", "", "");
-    }
-
     mapping(uint256 => Policy) public policies;
     mapping(uint256 => ActivityLog) public activityLogs;
 
@@ -64,57 +59,22 @@ contract ControlAccessManagement {
         return 0;
     }
 
-    function changePolicy(
-        string memory deviceId,
-        string memory _activity,
-        string memory requester,
-        bool permission
-    ) public returns (int32) {
-        int256 idx = getIndex(deviceId, _activity, requester);
-        if (idx == -1) {
-            return 1;
+    function changePolicy(uint256 idx, bool permission) public returns (int32) {
+        if (!(idx >= 0 && idx <= policyCount)) {
+            return -1;
         }
-        policies[uint256(idx)].permission = permission;
+        policies[idx].permission = permission;
         return 0;
-    }
-
-    function getIndex(
-        string memory deviceId,
-        string memory _activity,
-        string memory requester
-    ) public view returns (int256) {
-        for (uint256 i = 0; i < policyCount; i++) {
-            Policy memory pls = policies[i];
-            if (
-                compareStrings(pls.deviceId, deviceId) &&
-                compareStrings(pls.activity, _activity) &&
-                compareStrings(pls.requester, requester)
-            ) {
-                return int256(i);
-            }
-        }
-        return -1;
     }
 
     function createActivityLog(
         string memory deviceId,
         string memory _activity,
-        string memory requester
+        string memory requester,
+        bool permission
     ) public returns (bool) {
         uint256 time = now;
-        bool permission = false;
         activityLogCount++;
-        for (uint256 i = 0; i < policyCount; i++) {
-            Policy memory ply = policies[i];
-            if (
-                compareStrings(ply.deviceId, deviceId) &&
-                compareStrings(ply.activity, _activity) &&
-                compareStrings(ply.requester, requester)
-            ) {
-                permission = ply.permission;
-                break;
-            }
-        }
         activityLogs[activityLogCount] = ActivityLog(
             activityLogCount,
             time,
@@ -132,29 +92,5 @@ contract ControlAccessManagement {
             permission
         );
         return permission;
-    }
-
-    function grantActivityLog(uint256 idx) private returns (int32) {
-        if (idx > activityLogCount) {
-            return 1;
-        }
-        ActivityLog storage obj = activityLogs[idx];
-        int256 pIdx = getIndex(obj.deviceId, obj.activity, obj.requester);
-        if (pIdx < 0) {
-            return
-                createPolicy(obj.deviceId, obj.activity, obj.requester, true);
-        }
-        if (obj.permission == true) {
-            return 0;
-        }
-        return changePolicy(obj.deviceId, obj.activity, obj.requester, true);
-    }
-
-    function compareStrings(string memory _a, string memory _b)
-        private
-        pure
-        returns (bool)
-    {
-        return keccak256(abi.encode(_a)) == keccak256(abi.encode(_b));
     }
 }
