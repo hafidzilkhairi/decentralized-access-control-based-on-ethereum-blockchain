@@ -3,11 +3,12 @@ const bodyParser = require('body-parser')
 const app = express()
 const Web3 = require('web3')
 const solidity = require('./build/contracts/ControlAccessManagement.json')
-const port = 3000
-const rpcUrl = "http://127.0.0.1:7545"
+const port = 8000
+const rpcUrl = "http://127.0.0.1:8585"
 const web3 = new Web3(rpcUrl)
-const contractAddress = "0xB94dbe9a1FD252ee46A525E96B9e8cB47C3B7543"
+const contractAddress = "0xa140e13F9b6270963A95ed1A5376a08ae6E4b2ab"
 const privKey = '5087a9fbb2e02e58fff959f153812072fc612288b4e76c1ca70e2c90afd40271'
+const pubKey = "0x1be072c8A431c1F52CF9B3016B8B1ECcC6B37CBE"
 const contract = new web3.eth.Contract(solidity.abi, contractAddress)
 const account = web3.eth.accounts.privateKeyToAccount('0x' + privKey)
 web3.eth.accounts.wallet.add(account)
@@ -17,7 +18,7 @@ web3.eth.Contract.defaultAccount = account.address
 app.use(bodyParser.json())
 
 const txOptions = {
-    from: account.address,
+    from: pubKey,
     gas: "800000",
     gasPrice: 2000000000
 }
@@ -29,6 +30,27 @@ const responseDefault = () => {
         total: 0
     }
 }
+
+app.use((req, res, next) => {
+    let current_datetime = new Date();
+    let formatted_date =
+        current_datetime.getFullYear() +
+        "-" +
+        (current_datetime.getMonth() + 1) +
+        "-" +
+        current_datetime.getDate() +
+        " " +
+        current_datetime.getHours() +
+        ":" +
+        current_datetime.getMinutes() +
+        ":" +
+        current_datetime.getSeconds();
+    let method = req.method;
+    let url = req.url;
+    let log = `[${formatted_date}] ${method}:${url}`;
+    console.log(log);
+    next();
+})
 
 app.get('/api/v1/policies', async (req, res) => {
     const response = responseDefault();
@@ -175,8 +197,8 @@ app.get('/api/v1/activity-log', async (req, res) => {
     return
 })
 
-app.get('/api/v1/permission', async (req, res) => {
-    const query = req.query,
+app.post('/api/v1/permission', async (req, res) => {
+    const query = req.body,
         response = responseDefault()
     var isError = false,
         isPermit = false,
@@ -184,6 +206,7 @@ app.get('/api/v1/permission', async (req, res) => {
         totalData = 0
 
     if (!(query.deviceId, query.activity, query.requester)) {
+        console.log(query)
         response.message = "Unsatisfied query"
         res.status(400)
         res.send(response)
@@ -215,6 +238,7 @@ app.get('/api/v1/permission', async (req, res) => {
                 }
                 if (query.deviceId == r.deviceId && query.activity == r.activity && query.requester == r.requester) {
                     idxPolicy = i
+                    permission = r.permission
                 }
             })
             if (isError) {
@@ -252,12 +276,55 @@ app.get('/api/v1/permission', async (req, res) => {
         return
     }
 
+    response.data = {
+        deviceId: query.deviceId,
+        activity: query.activity,
+        requester: query.requester,
+        permission: permission
+    }
     response.message = permission ? "Allowed" : "Forbidden"
+    res.status(permission ? 200 : 403)
     res.send(response)
     return
 })
 
-app.patch('/api/v1/permission/:id', async (req, res) => {
+app.post('/api/v1/policies', async (req, res) => {
+    const query = req.body,
+        response = responseDefault()
+    isError = false
+
+    if (!(query.deviceId, query.activity, query.requester, query.permission)) {
+        response.message = "Unsatisfied query"
+        res.status(400)
+        res.send(response)
+        return
+    }
+
+    try {
+        await contract.methods.createPolicy(query.deviceId, query.activity, query.requester, query.permission).send(txOptions, (e, r) => {
+            if (e) {
+                isError = true
+                return
+            }
+        })
+    } catch (error) {
+        console.log(error)
+        isError = true
+    }
+    if (isError) {
+        response.message = "Something wrong"
+        res.status(500)
+        res.send(response)
+        return
+    }
+
+    response.message = "Created"
+    res.status(201)
+    res.send(response)
+    return
+})
+
+app.put('/api/v1/permission/:id', async (req, res) => {
     const idx = web3.eth.abi.encodeParameter('uint256', parseInt(req.params.id)),
         permission = req.body.permission,
         response = responseDefault()
@@ -449,4 +516,18 @@ app.put('/api/v1/activity-log/:id', async (req, res) => {
     return
 })
 
-app.listen(port, () => console.log(`App listening at http://0.0.0.0:${port}`))
+// app.listen(port, () => console.log(`App listening at http://0.0.0.0:${port}`))
+
+const https = require('https');
+const fs = require('fs');
+
+const options = {
+    key: fs.readFileSync('key.pem'),
+    cert: fs.readFileSync('cert.pem')
+};
+
+server = https.createServer(options, app)
+
+server.listen(port, "0.0.0.0", 2, (e) => {
+    console.log(`App listening at https://0.0.0.0:${port}`)
+})
